@@ -105,24 +105,32 @@ class NetworkClient:
             my_ip = "127.0.0.1"
         finally:
             s.close()
-        
+        hostname = socket.gethostname()
+        local_ip = socket.gethostbyname(hostname)
         logging.info(f"Determined local IP as {my_ip}")
         #send it to the peer via the relay server
-
-        await self.websocket.send(json.dumps({
-            "action": "ip_exchange",
-            "ip": my_ip
-        }))
+        try:
+            await self.websocket.send(json.dumps({
+                "action": "ip_exchange",
+                "ip": my_ip,
+                "local_ip": local_ip
+            }))
 
         # wait for peers IP
 
-        peer_message_raw = await self.websocket.recv()
-        peer_data = json.loads(peer_message_raw)
+            peer_message_raw = await self.websocket.recv()
+            peer_data = json.loads(peer_message_raw)
 
-        if peer_data.get("action") == "ip_exchange":
-            peer_ip = peer_data.get("ip")
-            logging.info(f"sucsessfully received peer IP: {peer_ip}")
-            return peer_ip
+            if peer_data.get("action") == "ip_exchange":
+                peer_ip = peer_data.get("ip")
+                logging.info(f"sucsessfully received peer IP: {peer_ip}")
+                peer_local_ip = peer_data.get("local_ip")
+                logging.info(f"sucsessfully received peer local IP: {peer_local_ip}")
+                return peer_ip
+                
         
-        logging.error("Failed to exchange IPs")
-        return None
+            logging.error("Failed to exchange IPs")
+            return None
+        except websockets.exceptions.ConnectionClosed:
+            logging.error("Connection closed during IP exchange")
+            return None

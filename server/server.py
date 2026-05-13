@@ -96,7 +96,6 @@ class NetworkServer:
         logging.info(f"Client joined room {room_id}")
 
         self.rooms[room_id]["connected_event"].set()
-        logging.info(f"client joined room {room_id}")
 
         #notify host client has joined
         ready_msg = json.dumps({"action": "peer_connected"})

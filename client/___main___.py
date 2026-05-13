@@ -31,9 +31,15 @@ async def main():
             
             logging.info("press ctrl+C to exit")
             try:
-                await asyncio.Future() # run forever
+                # instead of waiting for nothing, wait for the socket to close
+                await client.websocket.wait_closed()
+                logging.info("Websocket connection closed, exiting")
             except asyncio.CancelledError:
                 pass
+            #try:
+            #    await asyncio.Future() # run forever
+            #except asyncio.CancelledError:
+            #   pass
             
             # start NAT traversal
     
