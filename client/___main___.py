@@ -21,7 +21,22 @@ async def main():
 
         if key:
             print(f"Secure key established: {key[:4].hex()}...")
+            
+            #---START IP EXCHANGE---
+            peer_ip = await client.excange_ips()
+            if peer_ip:
+                print(f"peers IP address is: {peer_ip}")
+                #TODO start direct peer to peer connection here
+            # ---END IP EXCHANGE 
+            
+            logging.info("press ctrl+C to exit")
+            try:
+                await asyncio.Future() # run forever
+            except asyncio.CancelledError:
+                pass
+            
             # start NAT traversal
     
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     asyncio.run(main())

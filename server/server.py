@@ -1,5 +1,4 @@
 import asyncio
-from turtle import forward 
 import websockets
 import logging
 import json
@@ -37,20 +36,55 @@ class NetworkServer:
             await websocket.send(json.dumps({"error": "Room already exists"}))
             return
         
+        # Create heavily modified room object that includes an event
+        # so this method knows when to stop blocking
+        peer_joined_event = asyncio.Event()
+        
         #create new room and wait for connection
-        self.rooms[room_id] = {"host": websocket, "client": None}
+        self.rooms[room_id] = {
+            "host": websocket,
+            "client": None,
+            "connected_event": peer_joined_event
+        }
         logging.info(f"Room {room_id} created, waiting for peer")
 
-        # keepalive unti peer connects
-
         try:
-            async for _ in websocket:
-                pass
+            # Wait securely without reading the websocket
+            # This is a bit hacky but it allows us to block until the peer connects without consuming any messages from the websocket
+            
+            # Create a task to watch if the socket dies while waiting
+            async def wait_socket_close():
+                await websocket.wait_closed()
+                logging.info(f"Host for room {room_id} disconnected while waiting for peer, closing")
+            
+            close_task = asyncio.create_task(wait_socket_close())
+            event_task = asyncio.create_task(peer_joined_event.wait())
+
+            done, pending = await asyncio.wait(
+                [close_task, event_task],
+                return_when=asyncio.FIRST_COMPLETED
+            )
+
+            # Cancel whatever didnt finish
+            for task in pending:
+                task.cancel()
+            
+            # If the socket closed before the event fired, cleanup
+            if close_task in done:
+                raise websockets.exceptions.ConnectionClosed(None, None)
+            
+            # If event_task finished, it means the joiner arrived. 
+            # We exit cleanly and _handle_join takes over.
+            if event_task in done:
+                while room_id in self.rooms:
+                    await asyncio.sleep(0.5)
+
         except websockets.exceptions.ConnectionClosed:
-            #cleanup if connetion drops early
+            #cleanup if connection drops early.
             if room_id in self.rooms:
                 del self.rooms[room_id]
             logging.info(f"Host for room {room_id} disconnected, room closed")
+
 
     async def _handle_join(self, websocket, room_id):
         if room_id not in self.rooms:
@@ -60,6 +94,9 @@ class NetworkServer:
         host_ws = self.rooms[room_id]["host"]
         self.rooms[room_id]["client"] = websocket
         logging.info(f"Client joined room {room_id}")
+
+        self.rooms[room_id]["connected_event"].set()
+        logging.info(f"client joined room {room_id}")
 
         #notify host client has joined
         ready_msg = json.dumps({"action": "peer_connected"})
