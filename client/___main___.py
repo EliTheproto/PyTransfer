@@ -27,6 +27,13 @@ async def main():
                 print(f"Direct P2P endpoint established with peer: {peer_endpoint[0]}:{peer_endpoint[1]}")
                 await client.websocket.close()
                 logging.info("Websocket signaling channel closed after P2P upgrade")
+                logging.info("press ctrl+C to exit")
+                try:
+                    await asyncio.Future()
+                except asyncio.CancelledError:
+                    pass
+                finally:
+                    client.close_p2p_socket()
                 return
              
             logging.info("press ctrl+C to exit")

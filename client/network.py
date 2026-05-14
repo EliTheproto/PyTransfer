@@ -9,6 +9,9 @@ import json
 
 class NetworkClient:
     STUN_MAGIC_COOKIE = 0x2112A442
+    MAX_PUNCH_ATTEMPTS = 20
+    UDP_BUFFER_SIZE = 2048
+    PUNCH_WAIT_TIMEOUT_SECONDS = 0.4
 
     def __init__(self, server_uri, password):
         self.server_uri = server_uri
@@ -145,7 +148,7 @@ class NetworkClient:
 
     async def key_exchange(self, is_host):
         logging.info(f"starting key exchange as (is_host={is_host})")
-        # 1. initalze SPAKE2
+        # 1. initialize SPAKE2
         # the password must be bytes. we must use the room_id/code as the password to ensure both sides derive the same key
         password_bytes = self.password.encode('utf-8')
 
@@ -198,12 +201,12 @@ class NetworkClient:
 
     async def establish_p2p_connection(self):
         loop = asyncio.get_running_loop()
+        local_ip = self._get_local_ip()
         udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        udp_socket.bind(("0.0.0.0", 0))
+        udp_socket.bind((local_ip, 0))
         udp_socket.setblocking(False)
         self.udp_socket = udp_socket
 
-        local_ip = self._get_local_ip()
         local_port = udp_socket.getsockname()[1]
         public_endpoint = await self._discover_public_udp_endpoint(udp_socket)
 
@@ -230,7 +233,7 @@ class NetworkClient:
             return None
 
         punch_payload = b"PYTRANSFER_PUNCH"
-        for _ in range(20):
+        for _ in range(self.MAX_PUNCH_ATTEMPTS):
             for peer_address in peer_addresses:
                 try:
                     await loop.sock_sendto(udp_socket, punch_payload, peer_address)
@@ -238,7 +241,10 @@ class NetworkClient:
                     continue
 
             try:
-                packet, addr = await asyncio.wait_for(loop.sock_recvfrom(udp_socket, 2048), timeout=0.4)
+                packet, addr = await asyncio.wait_for(
+                    loop.sock_recvfrom(udp_socket, self.UDP_BUFFER_SIZE),
+                    timeout=self.PUNCH_WAIT_TIMEOUT_SECONDS,
+                )
             except asyncio.TimeoutError:
                 continue
 
@@ -251,7 +257,12 @@ class NetworkClient:
         logging.error("Failed to establish direct peer-to-peer UDP path")
         return None
 
-    async def excange_ips(self):
+    def close_p2p_socket(self):
+        if self.udp_socket is not None:
+            self.udp_socket.close()
+            self.udp_socket = None
+
+    async def exchange_ips(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
             #doesnt have to be reachable, just gets the local IP routing correctly
@@ -290,3 +301,6 @@ class NetworkClient:
         except websockets.exceptions.ConnectionClosed:
             logging.error("Connection closed during IP exchange")
             return None
+
+    async def excange_ips(self):
+        return await self.exchange_ips()
