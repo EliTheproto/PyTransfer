@@ -28,7 +28,9 @@ async def main():
                 try:
                     await client.websocket.close()
                 except Exception as error:
-                    logging.warning(f"Failed to close websocket signaling channel cleanly: {error}")
+                    logging.warning(
+                        f"Failed to close websocket signaling channel cleanly ({type(error).__name__}): {error}"
+                    )
                 logging.info("Websocket signaling channel closed after P2P upgrade")
                 logging.info("press ctrl+C to exit")
                 try:

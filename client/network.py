@@ -2,6 +2,8 @@ import asyncio
 import secrets
 import socket
 import struct
+import hmac
+import hashlib
 import spake2
 import websockets
 import logging
@@ -14,6 +16,8 @@ class NetworkClient:
     PUNCH_WAIT_TIMEOUT_SECONDS = 0.4
     STUN_SERVER = ("stun.l.google.com", 19302)
     SIGNAL_WAIT_TIMEOUT_SECONDS = 15
+    PUNCH_PACKET_PREFIX = b"PYTP2P1"
+    PUNCH_PACKET_MAC_LENGTH = 16
 
     def __init__(self, server_uri, password):
         self.server_uri = server_uri
@@ -21,6 +25,7 @@ class NetworkClient:
         self.websocket = None
         self.peer_endpoint = None
         self.udp_socket = None
+        self.session_key = None
 
     async def connect_and_pair(self, action, room_id):
         #action is either "host" or "join"
@@ -137,6 +142,9 @@ class NetworkClient:
             probe.close()
 
     async def _exchange_p2p_candidates(self, local_candidates):
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self.SIGNAL_WAIT_TIMEOUT_SECONDS
+
         await self.websocket.send(
             json.dumps(
                 {
@@ -146,14 +154,37 @@ class NetworkClient:
             )
         )
 
-        while True:
-            peer_message_raw = await asyncio.wait_for(
-                self.websocket.recv(),
-                timeout=self.SIGNAL_WAIT_TIMEOUT_SECONDS,
-            )
+        while loop.time() < deadline:
+            remaining = max(0.1, deadline - loop.time())
+            peer_message_raw = await asyncio.wait_for(self.websocket.recv(), timeout=remaining)
             peer_data = json.loads(peer_message_raw)
             if peer_data.get("action") == "p2p_candidates":
                 return peer_data.get("candidates", [])
+            logging.debug(f"Ignoring non-P2P signaling action: {peer_data.get('action')}")
+
+        raise TimeoutError("Timed out waiting for peer P2P candidates")
+
+    def _build_authenticated_punch_packet(self, packet_type):
+        nonce = secrets.token_bytes(8)
+        mac = hmac.new(self.session_key, packet_type + nonce, hashlib.sha256).digest()[: self.PUNCH_PACKET_MAC_LENGTH]
+        return self.PUNCH_PACKET_PREFIX + packet_type + nonce + mac
+
+    def _is_valid_authenticated_punch_packet(self, packet):
+        expected_length = len(self.PUNCH_PACKET_PREFIX) + 1 + 8 + self.PUNCH_PACKET_MAC_LENGTH
+        if len(packet) != expected_length:
+            return False
+        if not packet.startswith(self.PUNCH_PACKET_PREFIX):
+            return False
+
+        packet_type = packet[len(self.PUNCH_PACKET_PREFIX) : len(self.PUNCH_PACKET_PREFIX) + 1]
+        nonce_start = len(self.PUNCH_PACKET_PREFIX) + 1
+        nonce = packet[nonce_start : nonce_start + 8]
+        mac = packet[nonce_start + 8 :]
+        if packet_type not in {b"P", b"A"}:
+            return False
+
+        expected_mac = hmac.new(self.session_key, packet_type + nonce, hashlib.sha256).digest()[: self.PUNCH_PACKET_MAC_LENGTH]
+        return hmac.compare_digest(mac, expected_mac)
 
     async def key_exchange(self, is_host):
         logging.info(f"starting key exchange as (is_host={is_host})")
@@ -209,10 +240,18 @@ class NetworkClient:
             return None
 
     async def establish_p2p_connection(self):
+        if not self.session_key:
+            logging.error("Cannot establish P2P connection before key exchange")
+            return None
+
         loop = asyncio.get_running_loop()
         local_ip = self._get_local_ip()
         udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        udp_socket.bind((local_ip, 0))
+        try:
+            udp_socket.bind((local_ip, 0))
+        except OSError as error:
+            logging.error(f"Failed to bind UDP socket on {local_ip}: {error}")
+            return None
         udp_socket.setblocking(False)
         self.udp_socket = udp_socket
 
@@ -241,7 +280,7 @@ class NetworkClient:
             logging.error("No valid peer candidates were received")
             return None
 
-        punch_payload = b"PYTRANSFER_PUNCH"
+        punch_payload = self._build_authenticated_punch_packet(b"P")
         for _ in range(self.MAX_PUNCH_ATTEMPTS):
             for peer_address in peer_addresses:
                 try:
@@ -257,8 +296,8 @@ class NetworkClient:
             except asyncio.TimeoutError:
                 continue
 
-            if addr in peer_addresses and packet in {b"PYTRANSFER_PUNCH", b"PYTRANSFER_ACK"}:
-                await loop.sock_sendto(udp_socket, b"PYTRANSFER_ACK", addr)
+            if addr in peer_addresses and self._is_valid_authenticated_punch_packet(packet):
+                await loop.sock_sendto(udp_socket, self._build_authenticated_punch_packet(b"A"), addr)
                 self.peer_endpoint = addr
                 logging.info(f"Established direct UDP peer endpoint: {addr[0]}:{addr[1]}")
                 return addr
