@@ -22,13 +22,13 @@ async def main():
         if key:
             print(f"Secure key established: {key[:4].hex()}...")
             
-            #---START IP EXCHANGE---
-            peer_ip = await client.excange_ips()
-            if peer_ip:
-                print(f"peers IP address is: {peer_ip}")
-                #TODO start direct peer to peer connection here
-            # ---END IP EXCHANGE 
-            
+            peer_endpoint = await client.establish_p2p_connection()
+            if peer_endpoint:
+                print(f"Direct P2P endpoint established with peer: {peer_endpoint[0]}:{peer_endpoint[1]}")
+                await client.websocket.close()
+                logging.info("Websocket signaling channel closed after P2P upgrade")
+                return
+             
             logging.info("press ctrl+C to exit")
             try:
                 # instead of waiting for nothing, wait for the socket to close

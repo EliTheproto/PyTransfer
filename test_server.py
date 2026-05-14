@@ -64,6 +64,25 @@ class TestNetworkServer(unittest.IsolatedAsyncioTestCase):
         msg_at_host = await host_ws.recv()
         self.assertEqual(msg_at_host, "Hello from Joiner!")
 
+        # 5. Test relaying of P2P signaling payloads
+        host_candidates = {
+            "action": "p2p_candidates",
+            "candidates": [{"ip": "203.0.113.10", "port": 50001, "type": "stun"}],
+        }
+        await host_ws.send(json.dumps(host_candidates))
+        joiner_signal = json.loads(await joiner_ws.recv())
+        self.assertEqual(joiner_signal.get("action"), "p2p_candidates")
+        self.assertEqual(joiner_signal.get("candidates")[0]["port"], 50001)
+
+        joiner_candidates = {
+            "action": "p2p_candidates",
+            "candidates": [{"ip": "192.168.1.20", "port": 50002, "type": "local"}],
+        }
+        await joiner_ws.send(json.dumps(joiner_candidates))
+        host_signal = json.loads(await host_ws.recv())
+        self.assertEqual(host_signal.get("action"), "p2p_candidates")
+        self.assertEqual(host_signal.get("candidates")[0]["ip"], "192.168.1.20")
+
         # Cleanup
         await host_ws.close()
         await joiner_ws.close()
