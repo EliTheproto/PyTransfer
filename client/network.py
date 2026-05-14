@@ -107,7 +107,10 @@ class NetworkClient:
 
         try:
             await loop.sock_sendto(udp_socket, request, stun_server)
-            response, _ = await asyncio.wait_for(loop.sock_recvfrom(udp_socket, 2048), timeout=3)
+            response, _ = await asyncio.wait_for(
+                loop.sock_recvfrom(udp_socket, self.UDP_BUFFER_SIZE),
+                timeout=3,
+            )
         except Exception as error:
             logging.warning(f"STUN lookup failed: {error}")
             return None
