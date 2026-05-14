@@ -23,13 +23,30 @@ async def main():
             print(f"Secure key established: {key[:4].hex()}...")
             
             #---START IP EXCHANGE---
-            peer_ip = await client.excange_ips()
+            peer_ip = await client.exchange_ips()
             if peer_ip:
                 print(f"peers IP address is: {peer_ip}")
                 #TODO start direct peer to peer connection here
             # ---END IP EXCHANGE 
             
             logging.info("press ctrl+C to exit")
+            
+            peer_endpoints = await client.exchange_ips()
+            if peer_endpoints:
+                logging.info(f"peer_endpoints: peer IPs: {peer_endpoints}")
+
+                p2p_sock, p2p_addr = await client.upgrade_to_p2p(peer_endpoints)
+
+                if p2p_sock:
+                    logging.info(f"p2p is active directly with {p2p_addr}")
+                    # Now you can use p2p_sock to send/recv data directly with the peer
+                    # alongside client.websocket for relay fallback
+                else:
+                    logging.warning("Failed to establish P2P connection, will rely on relay")
+            
+            
+            
+            
             try:
                 # instead of waiting for nothing, wait for the socket to close
                 await client.websocket.wait_closed()

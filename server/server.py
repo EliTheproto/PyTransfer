@@ -111,6 +111,7 @@ class NetworkServer:
             try:
                 async for message in src:
                     await dst.send(message)
+                    logging.info(f"Relayed message in room {room_id}: {message}")
             except websockets.exceptions.ConnectionClosed:
                 pass
         
