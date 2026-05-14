@@ -25,11 +25,14 @@ async def main():
             peer_endpoint = await client.establish_p2p_connection()
             if peer_endpoint:
                 print(f"Direct P2P endpoint established with peer: {peer_endpoint[0]}:{peer_endpoint[1]}")
-                await client.websocket.close()
+                try:
+                    await client.websocket.close()
+                except Exception as error:
+                    logging.warning(f"Failed to close websocket signaling channel cleanly: {error}")
                 logging.info("Websocket signaling channel closed after P2P upgrade")
                 logging.info("press ctrl+C to exit")
                 try:
-                    await asyncio.Future()
+                    await asyncio.Event().wait()
                 except asyncio.CancelledError:
                     pass
                 finally:

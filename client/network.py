@@ -12,6 +12,8 @@ class NetworkClient:
     MAX_PUNCH_ATTEMPTS = 20
     UDP_BUFFER_SIZE = 2048
     PUNCH_WAIT_TIMEOUT_SECONDS = 0.4
+    STUN_SERVER = ("stun.l.google.com", 19302)
+    SIGNAL_WAIT_TIMEOUT_SECONDS = 15
 
     def __init__(self, server_uri, password):
         self.server_uri = server_uri
@@ -100,8 +102,9 @@ class NetworkClient:
 
         return None
 
-    async def _discover_public_udp_endpoint(self, udp_socket, stun_server=("stun.l.google.com", 19302)):
+    async def _discover_public_udp_endpoint(self, udp_socket, stun_server=None):
         loop = asyncio.get_running_loop()
+        stun_server = stun_server or self.STUN_SERVER
         transaction_id = secrets.token_bytes(12)
         request = self._build_stun_binding_request(transaction_id)
 
@@ -144,7 +147,10 @@ class NetworkClient:
         )
 
         while True:
-            peer_message_raw = await self.websocket.recv()
+            peer_message_raw = await asyncio.wait_for(
+                self.websocket.recv(),
+                timeout=self.SIGNAL_WAIT_TIMEOUT_SECONDS,
+            )
             peer_data = json.loads(peer_message_raw)
             if peer_data.get("action") == "p2p_candidates":
                 return peer_data.get("candidates", [])
@@ -251,7 +257,7 @@ class NetworkClient:
             except asyncio.TimeoutError:
                 continue
 
-            if packet in {b"PYTRANSFER_PUNCH", b"PYTRANSFER_ACK"}:
+            if addr in peer_addresses and packet in {b"PYTRANSFER_PUNCH", b"PYTRANSFER_ACK"}:
                 await loop.sock_sendto(udp_socket, b"PYTRANSFER_ACK", addr)
                 self.peer_endpoint = addr
                 logging.info(f"Established direct UDP peer endpoint: {addr[0]}:{addr[1]}")
