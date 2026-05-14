@@ -169,22 +169,24 @@ class NetworkClient:
         mac = hmac.new(self.session_key, packet_type + nonce, hashlib.sha256).digest()[: self.PUNCH_PACKET_MAC_LENGTH]
         return self.PUNCH_PACKET_PREFIX + packet_type + nonce + mac
 
-    def _is_valid_authenticated_punch_packet(self, packet):
+    def _get_authenticated_packet_type(self, packet):
         expected_length = len(self.PUNCH_PACKET_PREFIX) + 1 + 8 + self.PUNCH_PACKET_MAC_LENGTH
         if len(packet) != expected_length:
-            return False
+            return None
         if not packet.startswith(self.PUNCH_PACKET_PREFIX):
-            return False
+            return None
 
         packet_type = packet[len(self.PUNCH_PACKET_PREFIX) : len(self.PUNCH_PACKET_PREFIX) + 1]
         nonce_start = len(self.PUNCH_PACKET_PREFIX) + 1
         nonce = packet[nonce_start : nonce_start + 8]
         mac = packet[nonce_start + 8 :]
         if packet_type not in {b"P", b"A"}:
-            return False
+            return None
 
         expected_mac = hmac.new(self.session_key, packet_type + nonce, hashlib.sha256).digest()[: self.PUNCH_PACKET_MAC_LENGTH]
-        return hmac.compare_digest(mac, expected_mac)
+        if not hmac.compare_digest(mac, expected_mac):
+            return None
+        return packet_type
 
     async def key_exchange(self, is_host):
         logging.info(f"starting key exchange as (is_host={is_host})")
@@ -250,6 +252,7 @@ class NetworkClient:
         try:
             udp_socket.bind((local_ip, 0))
         except OSError as error:
+            udp_socket.close()
             logging.error(f"Failed to bind UDP socket on {local_ip}: {error}")
             return None
         udp_socket.setblocking(False)
@@ -280,10 +283,10 @@ class NetworkClient:
             logging.error("No valid peer candidates were received")
             return None
 
-        punch_payload = self._build_authenticated_punch_packet(b"P")
         for _ in range(self.MAX_PUNCH_ATTEMPTS):
             for peer_address in peer_addresses:
                 try:
+                    punch_payload = self._build_authenticated_punch_packet(b"P")
                     await loop.sock_sendto(udp_socket, punch_payload, peer_address)
                 except OSError:
                     continue
@@ -296,7 +299,8 @@ class NetworkClient:
             except asyncio.TimeoutError:
                 continue
 
-            if addr in peer_addresses and self._is_valid_authenticated_punch_packet(packet):
+            packet_type = self._get_authenticated_packet_type(packet)
+            if addr in peer_addresses and packet_type == b"P":
                 await loop.sock_sendto(udp_socket, self._build_authenticated_punch_packet(b"A"), addr)
                 self.peer_endpoint = addr
                 logging.info(f"Established direct UDP peer endpoint: {addr[0]}:{addr[1]}")
@@ -349,6 +353,3 @@ class NetworkClient:
         except websockets.exceptions.ConnectionClosed:
             logging.error("Connection closed during IP exchange")
             return None
-
-    async def excange_ips(self):
-        return await self.exchange_ips()

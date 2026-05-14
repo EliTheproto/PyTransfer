@@ -38,6 +38,8 @@ async def main():
                 except asyncio.CancelledError:
                     pass
                 finally:
+                    if client.websocket and not client.websocket.closed:
+                        await client.websocket.close()
                     client.close_p2p_socket()
                 return
              
