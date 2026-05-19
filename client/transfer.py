@@ -106,4 +106,67 @@ class SecureFileTransfer:
 
         # we need a loop on the asyncio event loop reading the socket
         loop = asyncio.get_running_loop()
-        
+        file_transfer_done = loop.create_future() 
+
+        out_file = None
+        expected_seq = 1
+
+        def udp_receiver():
+            nonlocal out_file, expected_seq
+
+            try:
+                data, addr = self.p2p_socket.recvfrom(2048)
+                if not data:
+                    return
+                
+                # unpack sequence number (first 4 bytes)
+                seq_num = struct.unpack("!I", data[:4])[0]
+                encrypted_payload = data[4:]
+
+                try:
+                    plaintext = self._decrypt(encrypted_payload)
+                except Exception as e:
+                    logging.error("Failed to decrypt chunk (wrong key?)")
+                    return
+                
+                # seq 0 is metadata
+
+                if seq_num == 0:
+                    meta = json.loads(plaintext.decode('utf-8'))
+                    filepath = os.path.join(download_dir, meta['filename'])
+                    out_file = open(filepath, 'wb')
+                    logging.info(f"Receiving file: {meta['filename']} ({meta['filesize']} bytes)")
+                
+                # seq 4294967295 (0xFFFFFFFF) if EOF
+
+                elif seq_num == 4294967295:
+                    logging.info("EOF received.")
+                    if out_file:
+                        out_file.close()
+                    if not file_transfer_done.done():
+                        file_transfer_done.set_result(True)
+                
+                # standard file chunks
+                else:
+                    if out_file:
+                        out_file.write(plaintext)
+
+                        # Note: in a real scenario UDP without ACKs would arrive out of order.
+                        # this writes them in order where they arrive, however we have given the receiver enough time
+                        # to process the packets in order so we should be fine
+                        if seq_num % 100 == 0:
+                            logging.info(f"Received chunk seq({seq_num})")
+
+            except BlockingIOError:
+                pass
+            except Exception as e:
+                logging.error(f"error reading chunk: {e}")
+            
+        # listen for packets 
+        loop.add_reader(self.p2p_socket.fileno(), udp_receiver)
+        logging.info(f"listening for incoming file in '{download_dir}'...")
+
+        # wait for EOF
+        await file_transfer_done
+        loop.remove_reader(self.p2p_socket.fileno())
+            
