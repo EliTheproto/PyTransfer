@@ -1,7 +1,6 @@
 import os 
 import asyncio
 import aiostun
-#import aioice
 import spake2
 import websockets
 import logging
@@ -94,7 +93,6 @@ class NetworkClient:
 
     async def exchange_ips(self):
         #placeholder for future NAT traversal implementation
-        import socket
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
             #doesnt have to be reachable, just gets the local IP routing correctly

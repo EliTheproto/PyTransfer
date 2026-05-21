@@ -46,7 +46,7 @@ class SecureFileTransfer:
     
     def _decrypt(self, encrypted_data: bytes) -> bytes:
         #decrypts data where the first 12 bytes are the nonce
-        nonce, ciphertext = encrypted_data[:12], encrypted_data[:12]
+        nonce, ciphertext = encrypted_data[:12], encrypted_data[12:]
         return self.aesgcm.decrypt(nonce, ciphertext, None)
     
     async def send_file(self, filepath):
@@ -154,6 +154,8 @@ class SecureFileTransfer:
                         # Note: in a real scenario UDP without ACKs would arrive out of order.
                         # this writes them in order where they arrive, however we have given the receiver enough time
                         # to process the packets in order so we should be fine
+                        # if we wanted to handle out of order packets we would need to buffer them and write in order based on seq_num,
+                        #  which adds complexity and memory usage which I really dont want to deal with
                         if seq_num % 100 == 0:
                             logging.info(f"Received chunk seq({seq_num})")
 

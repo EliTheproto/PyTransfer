@@ -1,6 +1,8 @@
 import asyncio
 from network import NetworkClient
 import logging
+import os
+from transfer import SecureFileTransfer
 
 async def main():
     action = input("Do you want to host or join a room? (host/join): ").strip().lower()
@@ -44,8 +46,30 @@ async def main():
                 else:
                     logging.warning("Failed to establish P2P connection, will rely on relay")
             
+            # --- START FILE TRANSFER ---
+            file_transfer = SecureFileTransfer(
+                p2p_socket=p2p_sock,
+                relay_socket=client.websocket,
+                session_key=key,
+                peer_addr=p2p_addr
+            )
             
             
+            print("\nConnection ready")
+            transfer_action = input("Do you want to send or receive a file? (send/recv): ").strip().lower()
+
+            if transfer_action == "send":
+                filepath = input("enter path to file to send: ").strip()
+                if os.path.exists(filepath):
+                    await file_transfer.send_file
+                else:
+                    logging.error("error: File does not exist.")
+            elif transfer_action == "recv":
+                download_dir = "./download"
+                print(f"Waiting ro receive file into '{download_dir}'... ")
+                await file_transfer.receive_file(download_dir)
+            else:
+                print("unkown action")
             
             try:
                 # instead of waiting for nothing, wait for the socket to close
@@ -53,6 +77,7 @@ async def main():
                 logging.info("Websocket connection closed, exiting")
             except asyncio.CancelledError:
                 pass
+                        
             #try:
             #    await asyncio.Future() # run forever
             #except asyncio.CancelledError:
