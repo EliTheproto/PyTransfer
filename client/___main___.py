@@ -61,7 +61,7 @@ async def main():
             if transfer_action == "send":
                 filepath = input("enter path to file to send: ").strip()
                 if os.path.exists(filepath):
-                    await file_transfer.send_file
+                    await file_transfer.send_file(filepath)
                 else:
                     logging.error("error: File does not exist.")
             elif transfer_action == "recv":
@@ -77,7 +77,7 @@ async def main():
                 logging.info("Websocket connection closed, exiting")
             except asyncio.CancelledError:
                 pass
-                        
+
             #try:
             #    await asyncio.Future() # run forever
             #except asyncio.CancelledError:

@@ -98,77 +98,93 @@ class SecureFileTransfer:
         eof_packet = struct.pack("!I", 4294967295) + self._encrypt(b"EOF")
         await self._send_data(eof_packet)
         logging.info("file transmission complete.")
-    
 
     async def receive_file(self, download_dir):
-
         os.makedirs(download_dir, exist_ok=True)
 
-        # we need a loop on the asyncio event loop reading the socket
         loop = asyncio.get_running_loop()
-        file_transfer_done = loop.create_future() 
-
+        file_transfer_done = loop.create_future()
         out_file = None
-        expected_seq = 1
 
-        def udp_receiver():
-            nonlocal out_file, expected_seq
+        # abstract the processing logic so both UDP and Websockets can use it
+        def process_packet(data):
+            nonlocal out_file
+            # unpack seq_num (first 4 bytes)
+            seq_num = struct.unpack("!I", data[:4])[0]
+            encrypted_payload = data[4:]
 
             try:
+                plaintext = self._decrypt(encrypted_payload)
+            except Exception as e:
+                logging.error("Failed to decrypt chunk (wrong key or corrupted data?)")
+                return
+            
+            # seq 0 is metadata
+            if seq_num == 0:
+                meta = json.loads(plaintext.decode('utf-8'))
+                filepath = os.path.join(download_dir, meta['filename'])
+                out_file = open(filepath, 'wb')
+                logging.info(f"Receiving file: {meta['filename']} ({meta['filesize']} bytes)")
+
+            # 0xFFFFFFFF is EOF
+            elif seq_num == 4294967295:
+                logging.info("EOF")
+                if out_file:
+                    out_file.close()
+                if not file_transfer_done.done():
+                    file_transfer_done.set_result(True)
+
+            # standard file chunk
+
+            else:
+                if out_file:
+                    out_file.write(plaintext)
+                    if seq_num % 100 == 0:
+                        logging.info(f"receivied chunk seq({seq_num})")
+
+        # -- Listener 1L UDP (if p2p) ---
+
+        def udp_receiver():
+            try:
                 data, addr = self.p2p_socket.recvfrom(2048)
-                if not data:
-                    return
-                
-                # unpack sequence number (first 4 bytes)
-                seq_num = struct.unpack("!I", data[:4])[0]
-                encrypted_payload = data[4:]
-
-                try:
-                    plaintext = self._decrypt(encrypted_payload)
-                except Exception as e:
-                    logging.error("Failed to decrypt chunk (wrong key?)")
-                    return
-                
-                # seq 0 is metadata
-
-                if seq_num == 0:
-                    meta = json.loads(plaintext.decode('utf-8'))
-                    filepath = os.path.join(download_dir, meta['filename'])
-                    out_file = open(filepath, 'wb')
-                    logging.info(f"Receiving file: {meta['filename']} ({meta['filesize']} bytes)")
-                
-                # seq 4294967295 (0xFFFFFFFF) if EOF
-
-                elif seq_num == 4294967295:
-                    logging.info("EOF received.")
-                    if out_file:
-                        out_file.close()
-                    if not file_transfer_done.done():
-                        file_transfer_done.set_result(True)
-                
-                # standard file chunks
-                else:
-                    if out_file:
-                        out_file.write(plaintext)
-
-                        # Note: in a real scenario UDP without ACKs would arrive out of order.
-                        # this writes them in order where they arrive, however we have given the receiver enough time
-                        # to process the packets in order so we should be fine
-                        # if we wanted to handle out of order packets we would need to buffer them and write in order based on seq_num,
-                        #  which adds complexity and memory usage which I really dont want to deal with
-                        if seq_num % 100 == 0:
-                            logging.info(f"Received chunk seq({seq_num})")
-
+                if data:
+                    process_packet(data)
             except BlockingIOError:
                 pass
             except Exception as e:
-                logging.error(f"error reading chunk: {e}")
-            
-        # listen for packets 
-        loop.add_reader(self.p2p_socket.fileno(), udp_receiver)
+                logging.error(f"error reading UDP chunk: {e}")
+
+        # --- LIstener 2: WebSocket (if p2p failed) ---
+
+        async def websocket_receiver():
+            try:
+                while not file_transfer_done.done():
+                    message = await self.relay_socket.recv()
+                    data_json = json.loads(message)
+                    if data_json.get("action") == "transfer_chunk":
+                        #convert the hex string back to bytes
+                        raw_data = bytes.fromhex(data_json["payload"])
+                        process_packet(raw_data)
+            except Exception as e:
+                if not file_transfer_done.done():
+                    logging.error(f"websocket receiver error: {e}")
+        
+        # start listening
         logging.info(f"listening for incoming file in '{download_dir}'...")
+
+        if self.p2p_socket:
+            logging.info("using P2P UDP...")
+            loop.add_reader(self.p2p_socket.fileno(), udp_receiver)
+        else:
+            logging.info("unable to establish P2P, using Websocket fallback")
+            ws_task = asyncio.create_task(websocket_receiver())
 
         # wait for EOF
         await file_transfer_done
-        loop.remove_reader(self.p2p_socket.fileno())
-            
+
+        # cleanup
+
+        if self.p2p_socket:
+            loop.remove_reader(self.p2p_socket.fileno())
+        else:
+            ws_task.cancel()
