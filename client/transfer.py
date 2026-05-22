@@ -4,6 +4,7 @@ import struct
 import json 
 import logging
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+import hashlib
 
 class SecureFileTransfer:
     def __init__(self, p2p_socket, relay_socket, session_key, peer_addr):
@@ -76,18 +77,23 @@ class SecureFileTransfer:
 
         # 2. stream the file in chunks
 
-        seq_num = 1 
+        file_hash = hashlib.sha256()
+        
+        seq_num = 1
         with open(filepath, 'rb') as f:
             while True:
                 chunk = f.read(self.chunk_size)
                 if not chunk:
                     break # EOF
+                
+                file_hash.update(chunk)
 
                 encrypted_chunk = self._encrypt(chunk)
 
                 # pack the seq num (4 byte unsigned int) and append payload
+                encrypted_chunk = self._encrypt(chunk)
                 packet = struct.pack("!I", seq_num) + encrypted_chunk
-
+                
                 await self._send_data(packet)
                 seq_num += 1
 
@@ -95,8 +101,16 @@ class SecureFileTransfer:
                 if seq_num % 100 == 0:
                     await asyncio.sleep(0)
 
+        # get final hash
+        final_hash_hex = file_hash.hexdigest()
+        #package the eof and hash together
+        eof_payload = json.dumps({
+            "status": "EOF",
+            "sha256": final_hash_hex
+        }).encode('utf-8')
+
         # send EOF singal (seq_num = 0xFFFFFFFF)
-        eof_packet = struct.pack("!I", 4294967295) + self._encrypt(b"EOF")
+        eof_packet = struct.pack("!I", 4294967295) + self._encrypt(eof_payload)
         await self._send_data(eof_packet)
         logging.info("file transmission complete.")
 
@@ -107,9 +121,10 @@ class SecureFileTransfer:
         file_transfer_done = loop.create_future()
         out_file = None
 
+        saved_filepath = None
         # abstract the processing logic so both UDP and Websockets can use it
         def process_packet(data):
-            nonlocal out_file
+            nonlocal out_file, saved_filepath
             # unpack seq_num (first 4 bytes)
             seq_num = struct.unpack("!I", data[:4])[0]
             encrypted_payload = data[4:]
@@ -132,6 +147,25 @@ class SecureFileTransfer:
                 logging.info("EOF")
                 if out_file:
                     out_file.close()
+
+
+                # parse eof
+                eof_data = json.loads(plaintext.decode('utf-8'))
+                expected_hash = eof_data.get("sha256")
+
+                # calc hash of the file
+                actual_hash = hashlib.sha256()
+                if saved_filepath and os.path.exists(saved_filepath):
+                    with open(saved_filepath, 'rb') as f:
+                        # read in chunks to avoid eating memory on large files
+                        for byte_block in iter(lambda: f.read(65536), b""):
+                            actual_hash.update(byte_block)
+                
+                if actual_hash.hexdigest() == expected_hash:
+                    logging.info("SUCSESS SHA-266 Matches")
+                else:
+                    logging.error(f"hash mismatch file corruption \nExpected: {expected_hash}\nGot: {actual_hash.hexdigest()}")
+
                 if not file_transfer_done.done():
                     file_transfer_done.set_result(True)
 
