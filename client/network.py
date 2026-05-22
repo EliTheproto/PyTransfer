@@ -109,6 +109,8 @@ class NetworkClient:
         # get public IP and NAT port using STUN
         # we can use the same STUN server for both clients since they just need to know
         # their own public IP/port, not the peers
+        public_ip = None
+        public_port = None
         try:
             async with aiostun.Client(host="stun.l.google.com", port=19302) as stun_client:
                 mapped_addr = await stun_client.get_mapped_address()
