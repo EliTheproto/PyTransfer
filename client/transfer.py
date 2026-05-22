@@ -138,6 +138,7 @@ class SecureFileTransfer:
             # seq 0 is metadata
             if seq_num == 0:
                 meta = json.loads(plaintext.decode('utf-8'))
+                saved_filepath = os.path.join(download_dir, meta['filename'])
                 filepath = os.path.join(download_dir, meta['filename'])
                 out_file = open(filepath, 'wb')
                 logging.info(f"Receiving file: {meta['filename']} ({meta['filesize']} bytes)")
