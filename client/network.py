@@ -92,19 +92,33 @@ class NetworkClient:
             return None
 
     async def exchange_ips(self):
-        #placeholder for future NAT traversal implementation
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        #p Create a robust way to find the local IP
+        local_ip = "127.0.0.1"
         try:
-            #doesnt have to be reachable, just gets the local IP routing correctly
-            s.connect(("10.255.255.255", 1))
-            my_ip = s.getsockname()[0]
-        except Exception:
-            my_ip = "127.0.0.1"
-        finally:
-            s.close()
-        hostname = socket.gethostname()
-        local_ip = socket.gethostbyname(hostname)
-        logging.info(f"Determined local IP as {my_ip}")
+            # 1. Try the Internet route first 
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            candidate_ip = s.getsockname()[0]
+            s.close
+
+            # if It give us an APIPA address, ignore and search manually
+            if candidate_ip.startswith("169.254."):
+                hostname = socket.gethostname()
+                # get all IPv4 addresses resolved for this hostname
+                addrs = socket.getaddrinfo(hostname, None, socket.AF_INET)
+
+                # filter for valid lan IPS (192.168.x.x, 10.x.x.x, 172.16.x.x)
+                for addr in addrs:
+                    ip = addr[4][0]
+                    if ip.startswith("192.168.") or ip.startswith("10.") or (ip.startswith("172.") and 16 <= int(ip.split('.')[1]) <= 31):
+                        local_ip = ip
+                        break
+            else:
+                local_ip = candidate_ip
+        except Exception as e:
+            logging.error("failed to auto-detect IP")
+        
+        logging.info(f"Determined local IP as {local_ip}")
 
         # get public IP and NAT port using STUN
         # we can use the same STUN server for both clients since they just need to know
@@ -125,7 +139,6 @@ class NetworkClient:
         try:
             await self.websocket.send(json.dumps({
                 "action": "ip_exchange",
-                "ip": my_ip,
                 "local_ip": local_ip,
                 "public_ip": public_ip,
                 "public_port": public_port
