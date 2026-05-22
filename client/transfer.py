@@ -72,7 +72,7 @@ class SecureFileTransfer:
         logging.info(f"sent metadata for {filename} ({filesize} bytes)")
 
         # give peer a moment to parse metadata
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.5)
 
         # 2. stream the file in chunks
 
