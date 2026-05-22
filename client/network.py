@@ -106,7 +106,7 @@ class NetworkClient:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("8.8.8.8", 80))
             candidate_ip = s.getsockname()[0]
-            s.close
+            s.close()
 
             # if It give us an APIPA address, ignore and search manually
             if candidate_ip.startswith("169.254."):
@@ -169,7 +169,7 @@ class NetworkClient:
 
                 # return both so the hole punch can try both
                 return {
-                    "local": (peer_local_ip, peer_public_port if peer_public_port else 0),
+                    "local": (peer_local_ip, peer_local_port),
                     "public": (peer_public_ip, peer_public_port)
                 }
                 
