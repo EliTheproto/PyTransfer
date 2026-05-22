@@ -92,7 +92,8 @@ class SecureFileTransfer:
                 seq_num += 1
 
                 #slight throttle so we dont overwhelm UDP buffers
-                await asyncio.sleep(0.001)
+                if seq_num % 100 == 0:
+                    await asyncio.sleep(0)
 
         # send EOF singal (seq_num = 0xFFFFFFFF)
         eof_packet = struct.pack("!I", 4294967295) + self._encrypt(b"EOF")

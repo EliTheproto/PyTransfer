@@ -97,8 +97,10 @@ class NetworkClient:
         self.p2p_socket.setblocking(False)
         self.p2p_socket.bind(("0.0.0.0", 0))
         local_port = self.p2p_socket.getsockname()[1]
-        
-        
+        try:
+            self.p2p_socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 8388608) 
+        except Exception:
+            pass 
         # Create a robust way to find the local IP
         local_ip = "127.0.0.1"
         try:
