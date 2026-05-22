@@ -92,7 +92,14 @@ class NetworkClient:
             return None
 
     async def exchange_ips(self):
-        #p Create a robust way to find the local IP
+        # create socket early
+        self.p2p_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.p2p_socket.setblocking(False)
+        self.p2p_socket.bind(("0.0.0.0", 0))
+        local_port = self.p2p_socket.getsockname()[1]
+        
+        
+        # Create a robust way to find the local IP
         local_ip = "127.0.0.1"
         try:
             # 1. Try the Internet route first 
@@ -140,6 +147,7 @@ class NetworkClient:
             await self.websocket.send(json.dumps({
                 "action": "ip_exchange",
                 "local_ip": local_ip,
+                "local_port": local_port,
                 "public_ip": public_ip,
                 "public_port": public_port
             }))
@@ -153,7 +161,8 @@ class NetworkClient:
                 peer_ip = peer_data.get("ip")
                 logging.info(f"sucsessfully received peer IP: {peer_ip}")
                 peer_local_ip = peer_data.get("local_ip")
-                logging.info(f"sucsessfully received peer local IP: {peer_local_ip}")
+                peer_local_port = peer_data.get("local_port")
+                logging.info(f"sucsessfully received peer local IP: {peer_local_ip}:{peer_local_port}")
                 peer_public_ip = peer_data.get("public_ip")
                 peer_public_port = peer_data.get("public_port")
                 logging.info(f"sucsessfully received peer public IP: {peer_public_ip}:{peer_public_port}")
@@ -174,14 +183,6 @@ class NetworkClient:
     async def upgrade_to_p2p(self, peer_endpoints):
         # Attepts UDP hole punching using the exchanged IP addr
         #returns the active p2p socket and adress if successful, or None if it fails.
-
-        # create a UDP socket for p2p 
-        self.p2p_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        # we need this to be non-blocking for asyncio
-        self.p2p_socket.setblocking(False)
-
-        # bind any local port (or the STUN port)
-        self.p2p_socket.bind(("0.0.0.0", 0))
         my_port = self.p2p_socket.getsockname()[1]
         logging.info(f"local UDP socket bound to port {my_port}")
 
@@ -211,6 +212,8 @@ class NetworkClient:
                         active_peer_addr = addr
                         p2p_connected.set_result(True)
             except BlockingIOError:
+                pass
+            except ConnectionResetError:
                 pass
             except Exception as e:
                 logging.error(f"Error reading from P2P socket: {e}")
