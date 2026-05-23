@@ -2,12 +2,13 @@ import asyncio
 from network import NetworkClient
 import logging
 import os
+import sys
 from transfer import SecureFileTransfer
 
 async def main():
     action = input("Do you want to host or join a room? (host/join): ").strip().lower()
     room_code = "1234" # in a real app, generate this dynamically or let user choose
-    server_uri = "ws://localhost:8765"
+    server_uri = "ws://localhost:8765" # change to your server's address
 
     # init client (pass room_code as password for key exchange)
     client = NetworkClient(server_uri, password=room_code)
@@ -87,4 +88,6 @@ async def main():
     
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
+    if sys.platform == 'win32':
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     asyncio.run(main())

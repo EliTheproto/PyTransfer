@@ -140,5 +140,5 @@ class NetworkServer:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    server = NetworkServer(host="localhost", port=8765, password= None)
+    server = NetworkServer(host="192.168.1.155", port=8765, password= None)
     asyncio.run(server.start())
