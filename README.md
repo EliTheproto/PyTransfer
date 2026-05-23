@@ -1,6 +1,6 @@
 # PyTransfer
 funky file transfer thing for my grade 12 computer science final
-inspired by [https://github.com/magic-wormhole/magic-wormhole](https://github.com/magic-wormhole/magic-wormhole)
+inspired by [Magic Wormhole](https://github.com/magic-wormhole/magic-wormhole)
 
 NOT secure at all please dont actually use this for anything important😭
 
