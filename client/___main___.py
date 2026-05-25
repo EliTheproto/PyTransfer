@@ -37,7 +37,7 @@ async def main():
             peer_endpoints = await client.exchange_ips()
             if peer_endpoints:
                 logging.info(f"peer_endpoints: peer IPs: {peer_endpoints}")
-
+                # Start NAT Traversal
                 p2p_sock, p2p_addr = await client.upgrade_to_p2p(peer_endpoints)
 
                 if p2p_sock:
@@ -78,13 +78,8 @@ async def main():
                 logging.info("Websocket connection closed, exiting")
             except asyncio.CancelledError:
                 pass
-
-            #try:
-            #    await asyncio.Future() # run forever
-            #except asyncio.CancelledError:
-            #   pass
             
-            # start NAT traversal
+        
     
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
