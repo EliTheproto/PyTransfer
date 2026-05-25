@@ -24,8 +24,8 @@ class SecureFileTransfer:
     
     async def _send_data(self, data: bytes):
         
-    # for this we will jsut blast UDP and wait, 
-    # in a produciton app we would want ACKs or websockets to gurantee
+    # for this we will just blast UDP and wait, 
+    # in a production app we would want ACKs or websockets to gurantee correct order
         if self.p2p_socket and self.peer_addr:
             try:
                 self.p2p_socket.sendto(data, self.peer_addr)
@@ -33,7 +33,7 @@ class SecureFileTransfer:
                 logging.error(f"UDP send failed: {e} Falling back to websocket")
 
         else:
-            # fallback to websocket if UDP hole punch completely failed
+            # fallback to websocket if UDP hole punch failed
             await self.relay_socket.send(json.dumps({
                 "action": "transfer_chunk",
                 "payload": data.hex()
@@ -46,7 +46,7 @@ class SecureFileTransfer:
         return nonce + cipherText
     
     def _decrypt(self, encrypted_data: bytes) -> bytes:
-        #decrypts data where the first 12 bytes are the nonce
+        # decrypts data where the first 12 bytes are the nonce
         nonce, ciphertext = encrypted_data[:12], encrypted_data[12:]
         return self.aesgcm.decrypt(nonce, ciphertext, None)
     
